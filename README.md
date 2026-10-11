@@ -44,6 +44,37 @@ Product creation and changes require a bearer token for an admin user:
 Product writes require an existing `categoryId`. List responses include `items`
 and `pagination` metadata.
 
+## Orders API
+
+All order endpoints require a bearer token. Customers only see and manage
+their own orders; the `admin` endpoints require an admin token.
+
+- `POST /api/v1/orders` creates a pending order from JSON
+  `{ "shippingAddress": "…", "items": [{ "productId": "<product-id>", "quantity": 1 }] }`.
+  Prices are captured server-side from the product record, stock is decremented
+  atomically (concurrent orders cannot oversell), and duplicate product lines
+  are merged. Returns `409` when stock is insufficient.
+- `GET /api/v1/orders` lists the authenticated user's orders and supports
+  `page`, `limit`, `status`, `sortBy` (`createdAt` or `totalAmount`), and
+  `sortOrder` query parameters.
+- `GET /api/v1/orders/:id` returns one of the user's own orders with its items
+  and payment.
+- `PATCH /api/v1/orders/:id/cancel` cancels one of the user's pending orders
+  and restores the reserved stock.
+
+Admin endpoints:
+
+- `GET /api/v1/orders/admin` lists all orders; supports the pagination
+  parameters plus `status` and `userId` filters.
+- `GET /api/v1/orders/admin/:id` returns any order regardless of owner.
+- `PATCH /api/v1/orders/admin/:id/status` with `{ "status": "PAID" }` moves an
+  order through the `PENDING → PAID → SHIPPED → DELIVERED` lifecycle; invalid
+  transitions return `409`. Sending `CANCELLED` (allowed from `PENDING` or
+  `PAID`) cancels the order and restocks its items.
+
+The Stripe checkout webhook also moves pending orders to `PAID` after payment.
+`DELIVERED` and `CANCELLED` are terminal states.
+
 ## Stripe Payments
 
 Configure `STRIPE_SECRET_KEY` with a Stripe test or live secret key and

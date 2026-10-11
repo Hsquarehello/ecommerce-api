@@ -5,6 +5,7 @@ import morgan from "morgan";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/index.js";
 import { authRouter } from "./modules/auth/index.js";
+import { orderRouter } from "./modules/orders/index.js";
 import { handleStripeWebhook } from "./modules/payments/payments.controller.js";
 import { paymentRouter } from "./modules/payments/index.js";
 import { productRouter } from "./modules/products/index.js";
@@ -28,6 +29,7 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/orders", orderRouter);
 app.use("/api/v1/payments", paymentRouter);
 app.use("/api/v1/products", productRouter);
 
