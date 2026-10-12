@@ -1,4 +1,5 @@
 import { AppError } from "../../errors/index.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import { OrderStatus, ProductStatus } from "../../generated/prisma/enums.js";
 import { ordersRepository } from "./orders.repository.js";
 import type {
@@ -14,7 +15,7 @@ const isPrismaError = (error: unknown, code: string) =>
   "code" in error &&
   error.code === code;
 
-const mapOrderError = (error: unknown): never => {
+export const mapOrderError = (error: unknown): never => {
   if (isPrismaError(error, "P2003")) {
     throw new AppError("One or more related records do not exist", 400);
   }
@@ -60,6 +61,45 @@ const mergeDuplicateItems = (items: CreateOrderInput["items"]) => {
   }));
 };
 
+const priceOrderItems = async (
+  items: CreateOrderInput["items"],
+  transaction?: Prisma.TransactionClient,
+) => {
+  const merged = mergeDuplicateItems(items);
+  const products = await ordersRepository.findProducts(
+    merged.map((item) => item.productId),
+    transaction,
+  );
+  const productById = new Map(
+    products.map((product) => [product.id, product]),
+  );
+
+  // Prices are captured server-side and totals are computed in integer
+  // cents to avoid floating point drift.
+  let totalCents = 0;
+  const pricedItems = merged.map((item) => {
+    const product = productById.get(item.productId);
+    if (!product) {
+      throw new AppError("One or more ordered products do not exist", 400);
+    }
+    if (product.status !== ProductStatus.ACTIVE) {
+      throw new AppError(
+        `Product "${product.name}" is not available for purchase`,
+        400,
+      );
+    }
+    if (product.stock < item.quantity) {
+      throw new AppError(`Insufficient stock for "${product.name}"`, 409);
+    }
+
+    const priceCents = Math.round(Number(product.price) * 100);
+    totalCents += priceCents * item.quantity;
+    return { ...item, price: priceCents / 100 };
+  });
+
+  return { items: pricedItems, totalAmount: totalCents / 100 };
+};
+
 const cancelOrder = async (
   orderId: string,
   userId: string | undefined,
@@ -85,45 +125,36 @@ const cancelOrder = async (
 
 export const ordersService = {
   async create(userId: string, input: CreateOrderInput) {
-    const items = mergeDuplicateItems(input.items);
-    const products = await ordersRepository.findProducts(
-      items.map((item) => item.productId),
-    );
-    const productById = new Map(products.map((product) => [product.id, product]));
-
-    // Prices are captured server-side and totals are computed in integer
-    // cents to avoid floating point drift.
-    let totalCents = 0;
-    const pricedItems = items.map((item) => {
-      const product = productById.get(item.productId);
-      if (!product) {
-        throw new AppError("One or more ordered products do not exist", 400);
-      }
-      if (product.status !== ProductStatus.ACTIVE) {
-        throw new AppError(
-          `Product "${product.name}" is not available for purchase`,
-          400,
-        );
-      }
-      if (product.stock < item.quantity) {
-        throw new AppError(`Insufficient stock for "${product.name}"`, 409);
-      }
-
-      const priceCents = Math.round(Number(product.price) * 100);
-      totalCents += priceCents * item.quantity;
-      return { ...item, price: priceCents / 100 };
-    });
-
+    const priced = await priceOrderItems(input.items);
     try {
       return await ordersRepository.createWithItems(
         userId,
         input.shippingAddress,
-        totalCents / 100,
-        pricedItems,
+        priced.totalAmount,
+        priced.items,
       );
     } catch (error) {
       return mapOrderError(error);
     }
+  },
+
+  /**
+   * Creates an order inside a caller-owned transaction (used by cart
+   * checkout so the order and the cart changes commit atomically).
+   */
+  async createInTransaction(
+    transaction: Prisma.TransactionClient,
+    userId: string,
+    input: CreateOrderInput,
+  ) {
+    const priced = await priceOrderItems(input.items, transaction);
+    return ordersRepository.createWithItems(
+      userId,
+      input.shippingAddress,
+      priced.totalAmount,
+      priced.items,
+      transaction,
+    );
   },
 
   listMine(userId: string, query: OrderListQuery) {

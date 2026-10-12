@@ -1,111 +1,237 @@
 # Ecommerce API
 
-Starter project for an Express and TypeScript API using Prisma 7 and PostgreSQL.
-The controller, service, and repository directories are reserved for future
-feature implementation; no ecommerce endpoints are implemented yet.
+A production-style Node.js, TypeScript, Express, Prisma, and PostgreSQL backend for an ecommerce platform. The API supports authentication, catalog browsing, cart management, order flows, and Stripe-based checkout.
+
+## Features
+
+- JWT authentication with customer and admin roles
+- Public product catalog and admin product management
+- Cart creation, updates, and checkout flow
+- Order creation, listing, cancellation, and admin lifecycle updates
+- Stripe checkout session creation and webhook verification
+- Request validation with Zod and centralized error handling
+- Prisma models for users, products, carts, orders, and payments
+
+## Tech Stack
+
+- Node.js 20+
+- TypeScript
+- Express 5
+- Prisma 7
+- PostgreSQL
+- Stripe SDK
+- Zod validation
 
 ## Requirements
 
 - Node.js 20.19 or newer
 - npm
-- PostgreSQL
+- PostgreSQL database
+- Stripe account for payment testing (optional for local setup)
 
-## Setup
+## Quick Start
 
-1. Copy `.env.example` to `.env` and set `DATABASE_URL` to your PostgreSQL URL.
-2. Install dependencies with `npm install`.
-3. Generate the Prisma client with `npm run db:generate`.
-4. Create and apply the initial database migration with `npm run db:migrate`.
-5. Start the development server with `npm run dev`.
+1. Clone the project and install dependencies:
 
-The Prisma 7 client uses the PostgreSQL driver adapter and is initialized in
-`src/config/prisma.ts` for future repository modules.
+   ```bash
+   npm install
+   ```
 
-The server listens on port 3000 by default. Set `PORT` to change it. Set
-`CORS_ORIGIN` to a comma-separated list of allowed frontend origins. Morgan logs
-HTTP requests in development format. Unknown routes and forwarded errors return
-a JSON error response.
+2. Create your environment file from the example:
 
-## Products API
+   ```bash
+   copy .env.example .env
+   ```
 
-Public catalog endpoints return active products only:
+   Then update the values in `.env`, especially:
+   - `DATABASE_URL`
+   - `JWT_SECRET`
+   - `STRIPE_SECRET_KEY`
+   - `STRIPE_WEBHOOK_SECRET`
 
-- `GET /api/v1/products` supports `page`, `limit`, `search`, `categoryId`, `sortBy`, and `sortOrder` query parameters.
-- `GET /api/v1/products/:id` returns an active product.
+3. Generate the Prisma client:
 
-Product creation and changes require a bearer token for an admin user:
+   ```bash
+   npm run db:generate
+   ```
 
-- `GET /api/v1/products/admin` lists products across statuses; an optional `status` query parameter filters the list.
-- `GET /api/v1/products/admin/:id` returns a product regardless of status.
-- `POST /api/v1/products` creates a product.
-- `PATCH /api/v1/products/:id` updates supplied fields.
-- `DELETE /api/v1/products/:id` archives the product, preserving order history.
+4. Apply the schema to PostgreSQL:
 
-Product writes require an existing `categoryId`. List responses include `items`
-and `pagination` metadata.
+   ```bash
+   npm run db:migrate
+   ```
 
-## Orders API
+5. Start the API in development mode:
 
-All order endpoints require a bearer token. Customers only see and manage
-their own orders; the `admin` endpoints require an admin token.
+   ```bash
+   npm run dev
+   ```
 
-- `POST /api/v1/orders` creates a pending order from JSON
-  `{ "shippingAddress": "…", "items": [{ "productId": "<product-id>", "quantity": 1 }] }`.
-  Prices are captured server-side from the product record, stock is decremented
-  atomically (concurrent orders cannot oversell), and duplicate product lines
-  are merged. Returns `409` when stock is insufficient.
-- `GET /api/v1/orders` lists the authenticated user's orders and supports
-  `page`, `limit`, `status`, `sortBy` (`createdAt` or `totalAmount`), and
-  `sortOrder` query parameters.
-- `GET /api/v1/orders/:id` returns one of the user's own orders with its items
-  and payment.
-- `PATCH /api/v1/orders/:id/cancel` cancels one of the user's pending orders
-  and restores the reserved stock.
+6. The server runs on port `3000` by default. Health check:
 
-Admin endpoints:
+   ```bash
+   GET /health
+   ```
 
-- `GET /api/v1/orders/admin` lists all orders; supports the pagination
-  parameters plus `status` and `userId` filters.
-- `GET /api/v1/orders/admin/:id` returns any order regardless of owner.
-- `PATCH /api/v1/orders/admin/:id/status` with `{ "status": "PAID" }` moves an
-  order through the `PENDING → PAID → SHIPPED → DELIVERED` lifecycle; invalid
-  transitions return `409`. Sending `CANCELLED` (allowed from `PENDING` or
-  `PAID`) cancels the order and restocks its items.
+## Environment Variables
 
-The Stripe checkout webhook also moves pending orders to `PAID` after payment.
-`DELIVERED` and `CANCELLED` are terminal states.
+The app expects these variables in `.env`:
 
-## Stripe Payments
+- `PORT` — API port, defaults to `3000`
+- `CORS_ORIGIN` — comma-separated frontend origins, default `http://localhost:5173`
+- `DATABASE_URL` — PostgreSQL connection string
+- `JWT_SECRET` — secret for signing JWTs; minimum 32 characters
+- `STRIPE_SECRET_KEY` — Stripe secret key for checkout sessions
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret
+- `STRIPE_CURRENCY` — default `usd`
+- `FRONTEND_URL` — redirect destination for Stripe checkout, default `http://localhost:5173`
 
-Configure `STRIPE_SECRET_KEY` with a Stripe test or live secret key and
-`STRIPE_WEBHOOK_SECRET` with the signing secret for the webhook endpoint.
-`STRIPE_CURRENCY` defaults to `usd`; `FRONTEND_URL` defaults to
-`http://localhost:5173` and is used for Checkout success and cancellation URLs.
+## API Overview
 
-An authenticated customer starts Checkout for their own pending order with
-`POST /api/v1/payments/checkout-session` and JSON `{ "orderId": "<order-id>" }`.
-The response contains `checkoutUrl`; redirect the customer to that Stripe URL.
-The order must already exist and have a positive total. Payment and order status
-are updated only after Stripe sends a verified webhook event.
+All endpoints are mounted under `/api/v1`.
 
-For local development, install and authenticate the Stripe CLI, then run:
+### Auth
 
-```sh
+- `POST /api/v1/auth/register` — register a new customer account
+- `POST /api/v1/auth/login` — sign in and receive a JWT
+- `GET /api/v1/auth/me` — get the authenticated user's profile
+
+Example register payload:
+
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "password": "StrongPassword123!"
+}
+```
+
+Example login payload:
+
+```json
+{
+  "email": "jane@example.com",
+  "password": "StrongPassword123!"
+}
+```
+
+### Products
+
+Public catalog:
+
+- `GET /api/v1/products` — list active products with pagination and filtering
+- `GET /api/v1/products/:id` — fetch a single active product
+
+Admin catalog routes:
+
+- `GET /api/v1/products/admin` — list all products, including non-active ones
+- `GET /api/v1/products/admin/:id` — fetch any product by ID
+- `POST /api/v1/products` — create a product
+- `PATCH /api/v1/products/:id` — update selected product fields
+- `DELETE /api/v1/products/:id` — archive a product without deleting history
+
+### Cart
+
+Protected routes requiring a bearer token:
+
+- `GET /api/v1/cart` — fetch the current user's cart
+- `POST /api/v1/cart/items` — add an item to the cart
+- `PATCH /api/v1/cart/items/:productId` — update item quantity
+- `DELETE /api/v1/cart/items/:productId` — remove an item from the cart
+- `DELETE /api/v1/cart` — clear the cart
+- `POST /api/v1/cart/checkout` — convert the cart into a pending order
+
+Example add-item payload:
+
+```json
+{
+  "productId": "<product-id>",
+  "quantity": 2
+}
+```
+
+### Orders
+
+Protected routes:
+
+- `POST /api/v1/orders` — create an order from a payload or cart
+- `GET /api/v1/orders` — list the authenticated user's orders
+- `GET /api/v1/orders/:id` — get one of the user's orders
+- `PATCH /api/v1/orders/:id/cancel` — cancel a pending order
+
+Admin-only routes:
+
+- `GET /api/v1/orders/admin` — list all orders with filters
+- `GET /api/v1/orders/admin/:id` — get any order
+- `PATCH /api/v1/orders/admin/:id/status` — update order lifecycle status
+
+Supported order statuses:
+
+- `PENDING`
+- `PAID`
+- `SHIPPED`
+- `DELIVERED`
+- `CANCELLED`
+
+### Payments
+
+- `POST /api/v1/payments/checkout-session` — create a Stripe checkout link for a pending order
+- `POST /api/v1/payments/webhook` — Stripe webhook endpoint for payment updates
+
+Example checkout payload:
+
+```json
+{
+  "orderId": "<order-id>"
+}
+```
+
+For local webhook testing, run:
+
+```bash
 stripe listen --forward-to localhost:3000/api/v1/payments/webhook
 ```
 
-Copy the CLI's `whsec_...` signing secret into `STRIPE_WEBHOOK_SECRET`. The
-webhook handles `checkout.session.completed`,
-`checkout.session.async_payment_succeeded`,
-`checkout.session.async_payment_failed`, and `checkout.session.expired`.
+Copy the returned webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 
-## Commands
+## Security Notes
 
-- `npm run dev` starts the TypeScript development server.
-- `npm run build` compiles the server into `dist/`.
-- `npm start` runs the compiled server.
-- `npm run typecheck` checks TypeScript without emitting files.
-- `npm run db:generate` generates Prisma Client.
-- `npm run db:migrate` creates/applies a development migration.
-- `npm run db:deploy` applies existing migrations.
-- `npm run db:studio` opens Prisma Studio.
+- Passwords are hashed before storage.
+- Protected routes require a valid JWT bearer token.
+- Role-based authorization restricts admin-only actions.
+- Stripe webhook requests are verified using the signing secret.
+- CORS is controlled via `CORS_ORIGIN`.
+
+## Project Structure
+
+```text
+src/
+  app.ts
+  server.ts
+  config/
+  errors/
+  middleware/
+  modules/
+prisma/
+  schema.prisma
+.env.example
+package.json
+SPEC.md
+```
+
+## Available Scripts
+
+```bash
+npm run dev
+npm run build
+npm start
+npm run typecheck
+npm run db:generate
+npm run db:migrate
+npm run db:deploy
+npm run db:studio
+```
+
+## Notes
+
+This repository contains the implementation of the ecommerce backend described in `SPEC.md`. It is intended to be used as a backend API service and is not a frontend application.

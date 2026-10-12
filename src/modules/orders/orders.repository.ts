@@ -1,5 +1,6 @@
 import { prisma } from "../../config/prisma.js";
 import { AppError } from "../../errors/index.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import { OrderStatus } from "../../generated/prisma/enums.js";
 import type { OrderListQuery } from "./orders.schema.js";
 
@@ -46,20 +47,22 @@ export const ordersRepository = {
     });
   },
 
-  findProducts(ids: string[]) {
-    return prisma.product.findMany({ where: { id: { in: ids } } });
+  findProducts(ids: string[], transaction?: Prisma.TransactionClient) {
+    const client = transaction ?? prisma;
+    return client.product.findMany({ where: { id: { in: ids } } });
   },
 
-  createWithItems(
+  async createWithItems(
     userId: string,
     shippingAddress: string,
     totalAmount: number,
     items: OrderItemLine[],
+    transaction?: Prisma.TransactionClient,
   ) {
-    return prisma.$transaction(async (transaction) => {
+    const execute = async (tx: Prisma.TransactionClient) => {
       // Decrement stock conditionally so concurrent orders cannot oversell.
       for (const item of items) {
-        const result = await transaction.product.updateMany({
+        const result = await tx.product.updateMany({
           where: { id: item.productId, stock: { gte: item.quantity } },
           data: { stock: { decrement: item.quantity } },
         });
@@ -71,7 +74,7 @@ export const ordersRepository = {
         }
       }
 
-      return transaction.order.create({
+      return tx.order.create({
         data: {
           userId,
           shippingAddress,
@@ -86,7 +89,11 @@ export const ordersRepository = {
         },
         include: orderInclude,
       });
-    });
+    };
+
+    return transaction
+      ? await execute(transaction)
+      : prisma.$transaction(execute);
   },
 
   cancel(
