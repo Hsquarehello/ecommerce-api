@@ -9,7 +9,11 @@ export const createCheckoutSession: RequestHandler = asyncHandler(
       request.authUser!.id,
       request.body,
     );
-    response.status(201).json({ data: result });
+    response.status(201).json({
+      success: true,
+      message: "Checkout session created successfully",
+      data: result,
+    });
   },
 );
 
@@ -23,6 +27,10 @@ export const handleStripeWebhook: RequestHandler = asyncHandler(
       request.body,
       request.get("stripe-signature"),
     );
-    response.status(200).json({ received: true });
+    response.status(200).json({
+      success: true,
+      message: "Stripe webhook processed successfully",
+      data: { received: true },
+    });
   },
 );

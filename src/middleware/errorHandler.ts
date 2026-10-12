@@ -10,8 +10,9 @@ export const errorHandler: ErrorRequestHandler = (
 ) => {
   if (error instanceof ZodError) {
     response.status(400).json({
-      status: "error",
+      success: false,
       message: "Validation failed",
+      data: null,
       errors: error.issues.map((issue) => ({
         field: issue.path.join("."),
         message: issue.message,
@@ -25,7 +26,8 @@ export const errorHandler: ErrorRequestHandler = (
     error instanceof AppError ? error.message : "Internal server error";
 
   response.status(statusCode).json({
-    status: "error",
+    success: false,
     message,
+    data: null,
   });
 };

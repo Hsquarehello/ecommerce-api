@@ -29,13 +29,17 @@ const mapProductError = (error: unknown): never => {
 
 const list = async (query: ProductListQuery, status?: ProductStatus) => {
   const [items, total] = await productsRepository.list(query, status);
+  const totalPages = total === 0 ? 0 : Math.ceil(total / query.limit);
+
   return {
     items,
     pagination: {
       page: query.page,
       limit: query.limit,
-      total,
-      totalPages: Math.ceil(total / query.limit),
+      totalItems: total,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+      hasPrevPage: query.page > 1 && totalPages > 0,
     },
   };
 };

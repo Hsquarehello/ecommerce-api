@@ -36,13 +36,17 @@ const statusTransitions: Record<OrderStatus, OrderStatus[]> = {
 
 const list = async (query: OrderListQuery, userId: string | undefined) => {
   const [items, total] = await ordersRepository.list(query, userId);
+  const totalPages = total === 0 ? 0 : Math.ceil(total / query.limit);
+
   return {
     items,
     pagination: {
       page: query.page,
       limit: query.limit,
-      total,
-      totalPages: Math.ceil(total / query.limit),
+      totalItems: total,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+      hasPrevPage: query.page > 1 && totalPages > 0,
     },
   };
 };
@@ -70,9 +74,7 @@ const priceOrderItems = async (
     merged.map((item) => item.productId),
     transaction,
   );
-  const productById = new Map(
-    products.map((product) => [product.id, product]),
-  );
+  const productById = new Map(products.map((product) => [product.id, product]));
 
   // Prices are captured server-side and totals are computed in integer
   // cents to avoid floating point drift.
@@ -200,11 +202,9 @@ export const ordersService = {
     }
 
     if (input.status === OrderStatus.CANCELLED) {
-      const cancelled = await ordersRepository.cancel(
-        id,
-        undefined,
-        [order.status],
-      );
+      const cancelled = await ordersRepository.cancel(id, undefined, [
+        order.status,
+      ]);
       if (!cancelled) {
         throw new AppError("The order can no longer be cancelled", 409);
       }

@@ -10,7 +10,12 @@ export const listProducts: RequestHandler = asyncHandler(
   async (request, response) => {
     const query = productListQuerySchema.parse(request.query);
     const result = await productsService.listPublic(query);
-    response.status(200).json({ data: result });
+    response.status(200).json({
+      success: true,
+      message: "Products fetched successfully",
+      data: result.items,
+      pagination: result.pagination,
+    });
   },
 );
 
@@ -18,7 +23,12 @@ export const listAdminProducts: RequestHandler = asyncHandler(
   async (request, response) => {
     const query = adminProductListQuerySchema.parse(request.query);
     const result = await productsService.listAdmin(query);
-    response.status(200).json({ data: result });
+    response.status(200).json({
+      success: true,
+      message: "Admin products fetched successfully",
+      data: result.items,
+      pagination: result.pagination,
+    });
   },
 );
 
@@ -27,21 +37,33 @@ export const getProduct: RequestHandler = asyncHandler(
     const product = await productsService.getPublic(
       request.params.id as string,
     );
-    response.status(200).json({ data: product });
+    response.status(200).json({
+      success: true,
+      message: "Product fetched successfully",
+      data: product,
+    });
   },
 );
 
 export const getAdminProduct: RequestHandler = asyncHandler(
   async (request, response) => {
     const product = await productsService.getAdmin(request.params.id as string);
-    response.status(200).json({ data: product });
+    response.status(200).json({
+      success: true,
+      message: "Admin product fetched successfully",
+      data: product,
+    });
   },
 );
 
 export const createProduct: RequestHandler = asyncHandler(
   async (request, response) => {
     const product = await productsService.create(request.body);
-    response.status(201).json({ data: product });
+    response.status(201).json({
+      success: true,
+      message: "Product created successfully",
+      data: product,
+    });
   },
 );
 
@@ -51,13 +73,21 @@ export const updateProduct: RequestHandler = asyncHandler(
       request.params.id as string,
       request.body,
     );
-    response.status(200).json({ data: product });
+    response.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      data: product,
+    });
   },
 );
 
 export const archiveProduct: RequestHandler = asyncHandler(
   async (request, response) => {
     const product = await productsService.archive(request.params.id as string);
-    response.status(200).json({ data: product });
+    response.status(200).json({
+      success: true,
+      message: "Product archived successfully",
+      data: product,
+    });
   },
 );
