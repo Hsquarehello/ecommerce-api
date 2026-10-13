@@ -5,13 +5,19 @@ import { env } from "../../config/env.js";
 import { authRepository } from "./auth.repository.js";
 import type { LoginInput, RegisterInput } from "./auth.schema.js";
 
-const toPublicUser = <T extends { password: string }>(user: T) => {
-  const { password: _password, ...publicUser } = user;
+const toPublicUser = <T extends { password: string; tokenVersion: number }>(
+  user: T,
+) => {
+  const {
+    password: _password,
+    tokenVersion: _tokenVersion,
+    ...publicUser
+  } = user;
   return publicUser;
 };
 
-const createToken = (user: { id: string }) =>
-  jwt.sign({}, env.JWT_SECRET, {
+const createToken = (user: { id: string; tokenVersion: number }) =>
+  jwt.sign({ tokenVersion: user.tokenVersion }, env.JWT_SECRET, {
     subject: user.id,
     issuer: "ecommerce-api",
     expiresIn: "1h",
@@ -22,6 +28,26 @@ const isUniqueConstraintError = (error: unknown) =>
   error !== null &&
   "code" in error &&
   error.code === "P2002";
+
+/**
+ * Best-effort token check: extracts and verifies the bearer token from an
+ * Authorization header. Returns the decoded payload, or null when the
+ * header or token is missing, malformed, expired or invalid.
+ */
+const verifyBearerToken = (authorization?: string): jwt.JwtPayload | null => {
+  const match = /^Bearer\s+(\S+)$/i.exec(authorization ?? "");
+  const token = match?.[1];
+  if (!token) return null;
+
+  try {
+    const payload = jwt.verify(token, env.JWT_SECRET, {
+      issuer: "ecommerce-api",
+    });
+    return typeof payload === "string" ? null : payload;
+  } catch {
+    return null;
+  }
+};
 
 export const authService = {
   async register(input: RegisterInput) {
@@ -53,9 +79,40 @@ export const authService = {
     return { user: toPublicUser(user), token: createToken(user) };
   },
 
-  async getProfile(id: string) {
-    const user = await authRepository.findById(id);
-    if (!user) throw new AppError("User not found", 404);
+  /**
+   * Simple, frontend-friendly profile lookup: always resolves.
+   * Returns the public user when a valid token identifies one,
+   * otherwise null. Never throws a 401.
+   */
+  async getProfile(authorization?: string) {
+    const payload = verifyBearerToken(authorization);
+    if (!payload?.sub) return null;
+
+    const user = await authRepository.findById(payload.sub);
+    if (!user) return null;
+    if (
+      typeof payload.tokenVersion === "number" &&
+      payload.tokenVersion !== user.tokenVersion
+    ) {
+      return null;
+    }
+
     return toPublicUser(user);
+  },
+
+  /**
+   * Best-effort logout: always succeeds so the frontend can simply
+   * call POST /auth/logout and clear its token. If a valid bearer
+   * token is provided, it is revoked server-side.
+   */
+  async logout(authorization?: string) {
+    const payload = verifyBearerToken(authorization);
+    if (!payload?.sub) return;
+
+    try {
+      await authRepository.incrementTokenVersion(payload.sub);
+    } catch {
+      // User no longer exists: nothing to revoke.
+    }
   },
 };

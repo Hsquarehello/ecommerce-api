@@ -24,11 +24,21 @@ export const login: RequestHandler = asyncHandler(async (request, response) => {
 
 export const getCurrentUser: RequestHandler = asyncHandler(
   async (request, response) => {
-    const user = await authService.getProfile(request.authUser!.id);
+    const user = await authService.getProfile(request.get("authorization"));
     response.status(200).json({
       success: true,
-      message: "Profile fetched successfully",
+      message: user ? "Profile fetched successfully" : "Not authenticated",
       data: user,
+    });
+  },
+);
+
+export const logout: RequestHandler = asyncHandler(
+  async (request, response) => {
+    await authService.logout(request.get("authorization"));
+    response.status(200).json({
+      success: true,
+      message: "Logout successful",
     });
   },
 );

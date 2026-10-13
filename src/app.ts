@@ -15,7 +15,7 @@ export const app = express();
 const corsOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
 
 app.disable("x-powered-by");
-app.use(cors({ origin: corsOrigins }));
+app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(morgan("dev"));
 app.use(helmet());
 app.post(

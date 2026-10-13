@@ -9,8 +9,8 @@ import { authRepository } from "./auth.repository.js";
 export const authenticate: RequestHandler = asyncHandler(
   async (request, _response, next) => {
     const match = /^Bearer\s+(\S+)$/i.exec(request.get("authorization") ?? "");
+    
     if (!match?.[1]) throw new AppError("Authentication required", 401);
-
     let payload: string | jwt.JwtPayload;
     try {
       payload = jwt.verify(match[1], env.JWT_SECRET, {
@@ -20,12 +20,27 @@ export const authenticate: RequestHandler = asyncHandler(
       throw new AppError("Invalid or expired token", 401);
     }
 
-    if (typeof payload === "string" || !payload.sub) {
+    if (typeof payload === "string") {
       throw new AppError("Invalid or expired token", 401);
     }
 
-    const user = await authRepository.findById(payload.sub);
-    if (!user) throw new AppError("Invalid or expired token", 401);
+    // Fix 1: payload.sub အစား Token ထဲတွင်ပါသော id သို့မဟုတ် sub နှစ်ခုစလုံးကို လက်ခံရန် စစ်ဆေးခြင်း
+    const userId = payload.sub || payload.id;
+    if (!userId) {
+      throw new AppError("Invalid or expired token", 401);
+    }
+
+    const user = await authRepository.findById(userId);
+    
+    // Fix 2: tokenVersion ကို Optional အဖြစ်ပြောင်းရန် (Database တွင် tokenVersion မရှိလျှင် Error မတက်စေရန်)
+    if (
+      !user ||
+      (payload.tokenVersion !== undefined && 
+       user.tokenVersion !== undefined && 
+       payload.tokenVersion !== user.tokenVersion)
+    ) {
+      throw new AppError("Invalid or expired token", 401);
+    }
 
     request.authUser = { id: user.id, role: user.role };
     next();

@@ -94,7 +94,8 @@ All endpoints are mounted under `/api/v1`.
 
 - `POST /api/v1/auth/register` — register a new customer account
 - `POST /api/v1/auth/login` — sign in and receive a JWT
-- `GET /api/v1/auth/me` — get the authenticated user's profile
+- `POST /api/v1/auth/logout` — log out (always succeeds; revokes the token if valid)
+- `GET /api/v1/auth/me` — get the current user (`data` is `null` when not authenticated)
 
 Example register payload:
 

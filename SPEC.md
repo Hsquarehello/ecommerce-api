@@ -202,8 +202,14 @@ The application exposes REST endpoints under the `/api/v1` prefix and uses JSON 
 #### Current User
 
 - Endpoint: `GET /api/v1/auth/me`
-- Requires authentication.
-- Returns the authenticated user's profile.
+- Does not require authentication; always returns HTTP 200.
+- Returns the current user when a valid bearer token is supplied, otherwise `data` is `null`.
+
+#### Logout
+
+- Endpoint: `POST /api/v1/auth/logout`
+- Does not require authentication; always returns success so the frontend can clear its token even if the token is missing or expired.
+- If a valid bearer token is provided, revokes all previously issued tokens for that user.
 
 ---
 

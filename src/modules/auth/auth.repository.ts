@@ -9,6 +9,13 @@ export const authRepository = {
     return prisma.user.findUnique({ where: { id } });
   },
 
+  incrementTokenVersion(id: string) {
+    return prisma.user.update({
+      where: { id },
+      data: { tokenVersion: { increment: 1 } },
+    });
+  },
+
   createUser(input: { name: string; email: string; password: string }) {
     return prisma.user.create({ data: input });
   },
