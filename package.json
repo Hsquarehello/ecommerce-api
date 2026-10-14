@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
@@ -37,7 +39,8 @@
     "@types/pg": "^8.15.5",
     "prisma": "^7.0.0",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^5.0.4"
   },
   "allowScripts": {
     "prisma@7.10.0": true,

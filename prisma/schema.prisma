@@ -39,6 +39,7 @@ model User {
   name      String
   role      Role     @default(CUSTOMER)
   tokenVersion Int    @default(0)
+  rememberMe Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   orders    Order[]

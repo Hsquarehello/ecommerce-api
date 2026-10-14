@@ -16,12 +16,16 @@ const toPublicUser = <T extends { password: string; tokenVersion: number }>(
   return publicUser;
 };
 
-const createToken = (user: { id: string; tokenVersion: number }) =>
-  jwt.sign({ tokenVersion: user.tokenVersion }, env.JWT_SECRET, {
-    subject: user.id,
+const createToken = (
+  user: { id: string; tokenVersion: number },
+  expiresIn = "1h",
+): string => {
+  return jwt.sign({ tokenVersion: user.tokenVersion }, env.JWT_SECRET, {
     issuer: "ecommerce-api",
-    expiresIn: "1h",
-  });
+    subject: user.id,
+    expiresIn,
+  } as jwt.SignOptions);
+};
 
 const isUniqueConstraintError = (error: unknown) =>
   typeof error === "object" &&
@@ -76,7 +80,8 @@ export const authService = {
       throw new AppError("Invalid email or password", 401);
     }
 
-    return { user: toPublicUser(user), token: createToken(user) };
+    const expiresIn = input.rememberMe ? "30d" : "1h";
+    return { user: toPublicUser(user), token: createToken(user, expiresIn) };
   },
 
   /**

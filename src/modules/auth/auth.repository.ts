@@ -16,7 +16,7 @@ export const authRepository = {
     });
   },
 
-  createUser(input: { name: string; email: string; password: string }) {
+  createUser(input: { name: string; email: string; password: string; rememberMe?: boolean }) {
     return prisma.user.create({ data: input });
   },
 };
