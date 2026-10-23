@@ -3,7 +3,11 @@ import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
 import { env } from "./config/env.js";
-import { errorHandler, notFoundHandler } from "./middleware/index.js";
+import {
+  apiLimiter,
+  errorHandler,
+  notFoundHandler,
+} from "./middleware/index.js";
 import { authRouter } from "./modules/auth/index.js";
 import { cartRouter } from "./modules/carts/index.js";
 import { orderRouter } from "./modules/orders/index.js";
@@ -11,13 +15,27 @@ import { handleStripeWebhook } from "./modules/payments/payments.controller.js";
 import { paymentRouter } from "./modules/payments/index.js";
 import { productRouter } from "./modules/products/index.js";
 
+const parseTrustProxy = (value: string): boolean | number | string => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+};
+
 export const app = express();
 const corsOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
+
+// Required behind a reverse proxy so rate limiting sees real client IPs.
+if (env.TRUST_PROXY) {
+  app.set("trust proxy", parseTrustProxy(env.TRUST_PROXY));
+}
 
 app.disable("x-powered-by");
 app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(morgan("dev"));
 app.use(helmet());
+// Registered before the rate limiter: Stripe retries webhooks aggressively,
+// and payloads are already protected by signature verification.
 app.post(
   "/api/v1/payments/webhook",
   express.raw({ type: "application/json" }),
@@ -28,6 +46,8 @@ app.use(express.json());
 app.get("/health", (_request, response) => {
   response.status(200).json({ status: "ok" });
 });
+
+app.use("/api/v1", apiLimiter);
 
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/cart", cartRouter);

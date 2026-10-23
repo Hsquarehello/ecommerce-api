@@ -9,6 +9,7 @@ A production-style Node.js, TypeScript, Express, Prisma, and PostgreSQL backend 
 - Cart creation, updates, and checkout flow
 - Order creation, listing, cancellation, and admin lifecycle updates
 - Stripe checkout session creation and webhook verification
+- Redis-backed rate limiting for all API routes, with stricter limits on auth endpoints
 - Request validation with Zod and centralized error handling
 - Prisma models for users, products, carts, orders, and payments
 
@@ -19,6 +20,7 @@ A production-style Node.js, TypeScript, Express, Prisma, and PostgreSQL backend 
 - Express 5
 - Prisma 7
 - PostgreSQL
+- Redis with express-rate-limit and rate-limit-redis
 - Stripe SDK
 - Zod validation
 
@@ -27,6 +29,7 @@ A production-style Node.js, TypeScript, Express, Prisma, and PostgreSQL backend 
 - Node.js 20.19 or newer
 - npm
 - PostgreSQL database
+- Redis server (or set `RATE_LIMIT_STORE=memory` to run without Redis)
 - Stripe account for payment testing (optional for local setup)
 
 ## Quick Start
@@ -49,25 +52,31 @@ A production-style Node.js, TypeScript, Express, Prisma, and PostgreSQL backend 
    - `STRIPE_SECRET_KEY`
    - `STRIPE_WEBHOOK_SECRET`
 
-3. Generate the Prisma client:
+3. Start a Redis server for rate limiting (skip this if you set `RATE_LIMIT_STORE=memory` in `.env`):
+
+   ```bash
+   docker run --name ecommerce-redis -p 6379:6379 -d redis:7-alpine
+   ```
+
+4. Generate the Prisma client:
 
    ```bash
    npm run db:generate
    ```
 
-4. Apply the schema to PostgreSQL:
+5. Apply the schema to PostgreSQL:
 
    ```bash
    npm run db:migrate
    ```
 
-5. Start the API in development mode:
+6. Start the API in development mode:
 
    ```bash
    npm run dev
    ```
 
-6. The server runs on port `3000` by default. Health check:
+7. The server runs on port `3000` by default. Health check:
 
    ```bash
    GET /health
@@ -85,6 +94,12 @@ The app expects these variables in `.env`:
 - `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret
 - `STRIPE_CURRENCY` — default `usd`
 - `FRONTEND_URL` — redirect destination for Stripe checkout, default `http://localhost:5173`
+- `REDIS_URL` — Redis connection string for the rate limiter store, default `redis://localhost:6379`
+- `RATE_LIMIT_STORE` — `redis` (default) or `memory` for the per-process in-memory store
+- `RATE_LIMIT_WINDOW_MS` — rate limit window in milliseconds, default `60000`
+- `RATE_LIMIT_MAX` — requests allowed per IP per window on all `/api/v1` routes, default `100`
+- `RATE_LIMIT_AUTH_MAX` — requests allowed per IP per window on `/api/v1/auth/register` and `/api/v1/auth/login`, default `10`
+- `TRUST_PROXY` — optional reverse proxy setting for Express `trust proxy` (e.g. `1`, `loopback`, or an IP list); required behind a proxy so rate limiting sees real client IPs
 
 ## API Overview
 
@@ -195,6 +210,35 @@ stripe listen --forward-to localhost:3000/api/v1/payments/webhook
 
 Copy the returned webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 
+## Rate Limiting
+
+All `/api/v1` routes are rate limited per client IP with `express-rate-limit`. Hit counters are stored in Redis (`rate-limit-redis` + node-redis) so limits are shared across multiple application instances.
+
+| Limiter | Routes | Default limit | Redis key prefix |
+| --- | --- | --- | --- |
+| Global (`apiLimiter`) | every `/api/v1` route | `RATE_LIMIT_MAX` per `RATE_LIMIT_WINDOW_MS` (100 per minute) | `rl:api:` |
+| Auth (`authLimiter`) | `/api/v1/auth/register`, `/api/v1/auth/login` | `RATE_LIMIT_AUTH_MAX` per `RATE_LIMIT_WINDOW_MS` (10 per minute) | `rl:auth:` |
+
+Details:
+
+- Keys are generated from the client IP address; IPv6 clients are grouped by subnet (`/56` by default).
+- Compatible with Redis 5.x and newer (and Redis-compatible servers such as Valkey); the node-redis client pins RESP2 for broad compatibility.
+- Every response through a limiter includes IETF draft-7 `RateLimit` and `RateLimit-Policy` headers; blocked responses also include `Retry-After` (seconds until the window resets). Legacy `X-RateLimit-*` headers are disabled.
+- Blocked requests return HTTP `429` in the unified error format:
+
+  ```json
+  {
+    "success": false,
+    "message": "Too many requests, please try again later.",
+    "data": null
+  }
+  ```
+
+- The Stripe webhook endpoint (`POST /api/v1/payments/webhook`) and `GET /health` are exempt: the webhook is protected by Stripe signature verification and receives retries from Stripe itself, and `/health` is used by uptime probes.
+- If Redis becomes unreachable, the API fails open (requests are allowed without counting) and logs the store error, prioritizing availability over strict enforcement. Restart the API once Redis is reachable again.
+- Set `RATE_LIMIT_STORE=memory` to use the built-in per-process store instead of Redis (convenient for tests and local development without Redis; limits are not shared across instances).
+- When running behind a reverse proxy or load balancer, set `TRUST_PROXY` (for example `1`) so Express resolves the real client IP from `X-Forwarded-For`; otherwise all clients share the proxy's IP quota.
+
 ## Security Notes
 
 - Passwords are hashed before storage.
@@ -202,6 +246,7 @@ Copy the returned webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
 - Role-based authorization restricts admin-only actions.
 - Stripe webhook requests are verified using the signing secret.
 - CORS is controlled via `CORS_ORIGIN`.
+- Per-IP rate limiting (Redis-backed) protects all API routes, with stricter limits on registration and login.
 
 ## Project Structure
 
@@ -210,15 +255,23 @@ src/
   app.ts
   server.ts
   config/
+    env.ts
+    prisma.ts
+    redis.ts
   errors/
   middleware/
+    rateLimit.ts
+    rateLimit.test.ts
   modules/
 prisma/
   schema.prisma
 .env.example
+.gitignore
 package.json
 SPEC.md
 ```
+
+Log files (`*.log`) are git-ignored; request logging goes to stdout via `morgan("dev")`.
 
 ## Available Scripts
 

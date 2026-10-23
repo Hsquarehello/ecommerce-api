@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This project is a backend API for an ecommerce platform built with Node.js, TypeScript, Express, Prisma, and PostgreSQL. It supports authentication, catalog browsing, cart management, order lifecycle operations, and Stripe-based payment checkout.
+This project is a backend API for an ecommerce platform built with Node.js, TypeScript, Express, Prisma, PostgreSQL, and Redis. It supports authentication, catalog browsing, cart management, order lifecycle operations, and Stripe-based payment checkout.
 
 The API is designed around role-based access control and domain-driven modules:
 
@@ -44,6 +44,7 @@ The application exposes REST endpoints under the `/api/v1` prefix and uses JSON 
 - Express 5
 - TypeScript
 - Prisma 7 with PostgreSQL
+- Redis for shared rate limiter counters (express-rate-limit + rate-limit-redis + node-redis)
 - Zod for request validation
 - Stripe SDK for payment integration
 
@@ -51,13 +52,13 @@ The application exposes REST endpoints under the `/api/v1` prefix and uses JSON 
 
 - `src/app.ts` — application bootstrap and middleware registration
 - `src/server.ts` — server startup
-- `src/config/` — environment and Prisma configuration
+- `src/config/` — environment, Redis, and Prisma configuration
 - `src/modules/auth/` — authentication and authorization logic
 - `src/modules/products/` — catalog CRUD and listing logic
 - `src/modules/carts/` — cart and checkout logic
 - `src/modules/orders/` — order lifecycle logic
 - `src/modules/payments/` — Stripe checkout and webhook support
-- `src/middleware/` — validation and error handling
+- `src/middleware/` — validation, rate limiting, and error handling
 - `prisma/schema.prisma` — database schema and enums
 
 ---
@@ -103,6 +104,7 @@ The application exposes REST endpoints under the `/api/v1` prefix and uses JSON 
 - Request bodies are validated using Zod schemas.
 - Sensitive payment webhook endpoints verify Stripe signatures.
 - CORS is configured via environment settings.
+- Per-IP rate limiting protects all `/api/v1` endpoints, with stricter limits on credential endpoints.
 
 ---
 
@@ -403,6 +405,60 @@ Business rules:
 
 ---
 
+### 8.6 Rate Limiting
+
+#### Behavior
+
+- All routes under `/api/v1` are rate limited per client IP using `express-rate-limit`.
+- Hit counters are stored in Redis via `rate-limit-redis` and a shared node-redis client so limits are consistent across multiple application instances.
+- Clients are identified by IP address. IPv6 addresses are grouped by subnet (default `/56`) so a single client cannot rotate through a large IPv6 block.
+- Behind a reverse proxy, `TRUST_PROXY` must be configured so the real client IP is read from `X-Forwarded-For`.
+
+#### Limits
+
+| Limiter | Scope | Default |
+| --- | --- | --- |
+| Global | every `/api/v1` route | `RATE_LIMIT_MAX` requests per `RATE_LIMIT_WINDOW_MS` (100 per 60 seconds) per IP |
+| Auth | `POST /api/v1/auth/register`, `POST /api/v1/auth/login` | `RATE_LIMIT_AUTH_MAX` requests per `RATE_LIMIT_WINDOW_MS` (10 per 60 seconds) per IP |
+
+- Requests to auth credential endpoints count against both the auth limiter and the global limiter.
+- Redis key prefixes: `rl:api:` (global) and `rl:auth:` (auth).
+
+#### Exemptions
+
+- `GET /health` is not rate limited so uptime probes remain reliable.
+- `POST /api/v1/payments/webhook` is not rate limited: payloads are verified via Stripe signature verification, and Stripe retries webhooks independently.
+
+#### Responses
+
+- Responses passing through a limiter include IETF draft-7 `RateLimit` and `RateLimit-Policy` headers.
+- Blocked requests return `429` with a `Retry-After` header (seconds until the window resets) and the unified error format:
+
+  ```json
+  {
+    "success": false,
+    "message": "Too many requests, please try again later.",
+    "data": null
+  }
+  ```
+
+#### Degradation and Configuration
+
+- `RATE_LIMIT_STORE=redis` (default) uses Redis; `RATE_LIMIT_STORE=memory` falls back to the built-in per-process store for environments without Redis (limits are then per instance and not shared).
+- If Redis becomes unreachable at runtime, the API fails open: requests are allowed without counting and the store error is logged. Availability is prioritized over strict enforcement.
+- If Redis is unreachable at startup, the API still starts and logs a warning; rate limiting resumes automatically once the API is restarted with Redis reachable.
+
+#### Environment Configuration
+
+- `REDIS_URL` (defaults to `redis://localhost:6379`)
+- `RATE_LIMIT_STORE` (defaults to `redis`)
+- `RATE_LIMIT_WINDOW_MS` (defaults to `60000`)
+- `RATE_LIMIT_MAX` (defaults to `100`)
+- `RATE_LIMIT_AUTH_MAX` (defaults to `10`)
+- `TRUST_PROXY` (optional)
+
+---
+
 ## 9. Validation and Error Handling
 
 ### Request Validation
@@ -416,6 +472,7 @@ All incoming request bodies and route params use Zod validation. Invalid request
 - 403: unauthorized
 - 404: resource not found
 - 409: conflict / invalid state or stock issue
+- 429: rate limit exceeded
 - 500: server-side failure
 
 ### Unified Error Format
@@ -450,6 +507,7 @@ Error responses follow a JSON format with details suitable for API clients, incl
 - An admin can update order status through the valid lifecycle.
 - Stripe checkout can initialize a checkout session for a valid order.
 - Webhook verification updates payment and order states.
+- A client that exceeds the global or auth request quota receives a `429` response with `Retry-After` and the unified error body.
 
 ### Non-functional acceptance
 
@@ -458,6 +516,8 @@ Error responses follow a JSON format with details suitable for API clients, incl
 - Database writes respect transactional consistency where required.
 - Unknown routes return a not-found error response.
 - The application starts with environment variables configured correctly.
+- Rate limit counters are shared across application instances through Redis.
+- The API remains available (fails open) when Redis is unreachable instead of rejecting requests with server errors.
 
 ---
 
@@ -466,6 +526,7 @@ Error responses follow a JSON format with details suitable for API clients, incl
 ### Local Development
 
 - Configure PostgreSQL and set `DATABASE_URL`.
+- Start a Redis server on `REDIS_URL` (or set `RATE_LIMIT_STORE=memory`).
 - Run Prisma generation and migrations.
 - Start the development server with `npm run dev`.
 - Use the Stripe CLI to forward webhook events locally:
@@ -480,6 +541,8 @@ stripe listen --forward-to localhost:3000/api/v1/payments/webhook
 - Ensure Stripe webhook signing secret is managed securely.
 - Validate CORS origins explicitly.
 - Use a managed PostgreSQL instance for production workloads.
+- Use a managed Redis instance for rate limiter counters and set `REDIS_URL` accordingly.
+- Set `TRUST_PROXY` when running behind a reverse proxy or load balancer so rate limiting applies per client IP.
 
 ---
 

@@ -14,6 +14,12 @@ const envSchema = z.object({
     .transform((currency) => currency.toLowerCase())
     .default("usd"),
   FRONTEND_URL: z.string().url().default("http://localhost:5173"),
+  REDIS_URL: z.string().default("redis://localhost:6379"),
+  RATE_LIMIT_STORE: z.enum(["redis", "memory"]).default("redis"),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
+  TRUST_PROXY: z.string().default(""),
 });
 
 export const env = envSchema.parse(process.env);

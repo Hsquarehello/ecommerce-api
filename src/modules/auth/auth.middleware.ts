@@ -9,7 +9,6 @@ import { authRepository } from "./auth.repository.js";
 export const authenticate: RequestHandler = asyncHandler(
   async (request, _response, next) => {
     const match = /^Bearer\s+(\S+)$/i.exec(request.get("authorization") ?? "");
-    
     if (!match?.[1]) throw new AppError("Authentication required", 401);
     let payload: string | jwt.JwtPayload;
     try {
