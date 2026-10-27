@@ -14,6 +14,7 @@ import { orderRouter } from "./modules/orders/index.js";
 import { handleStripeWebhook } from "./modules/payments/payments.controller.js";
 import { paymentRouter } from "./modules/payments/index.js";
 import { productRouter } from "./modules/products/index.js";
+import { usersRouter } from "./modules/users/index.js";
 
 const parseTrustProxy = (value: string): boolean | number | string => {
   if (value === "true") return true;
@@ -54,6 +55,7 @@ app.use("/api/v1/cart", cartRouter);
 app.use("/api/v1/orders", orderRouter);
 app.use("/api/v1/payments", paymentRouter);
 app.use("/api/v1/products", productRouter);
+app.use("/api/v1/users", usersRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

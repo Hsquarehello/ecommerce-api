@@ -80,3 +80,13 @@ export const authLimiter = createRateLimiter({
   limit: env.RATE_LIMIT_AUTH_MAX,
   prefix: "rl:auth:",
 });
+
+/**
+ * Additional IP-based limit for authenticated administrator User Management
+ * requests, shared across all routes in the users router.
+ */
+export const usersLimiter = createRateLimiter({
+  windowMs: 60_000,
+  limit: 10,
+  prefix: "rl:users:",
+});

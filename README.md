@@ -218,6 +218,7 @@ All `/api/v1` routes are rate limited per client IP with `express-rate-limit`. H
 | --- | --- | --- | --- |
 | Global (`apiLimiter`) | every `/api/v1` route | `RATE_LIMIT_MAX` per `RATE_LIMIT_WINDOW_MS` (100 per minute) | `rl:api:` |
 | Auth (`authLimiter`) | `/api/v1/auth/register`, `/api/v1/auth/login` | `RATE_LIMIT_AUTH_MAX` per `RATE_LIMIT_WINDOW_MS` (10 per minute) | `rl:auth:` |
+| User Management (`usersLimiter`) | authenticated admin requests to `/api/v1/users` | 10 requests per minute, in addition to the global limit | `rl:users:` |
 
 Details:
 
@@ -247,6 +248,7 @@ Details:
 - Stripe webhook requests are verified using the signing secret.
 - CORS is controlled via `CORS_ORIGIN`.
 - Per-IP rate limiting (Redis-backed) protects all API routes, with stricter limits on registration and login.
+- Authenticated User Management requests have an additional limit of 10 requests per minute per client IP.
 
 ## Project Structure
 
